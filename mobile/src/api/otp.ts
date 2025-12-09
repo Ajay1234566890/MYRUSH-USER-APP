@@ -1,6 +1,4 @@
-import { supabase } from './supabase';
-
-const DUMMY_OTP = '12345';
+import client from './client';
 
 export const otpApi = {
 	/**
@@ -11,28 +9,23 @@ export const otpApi = {
 		try {
 			console.log('[OTP API] Sending OTP to', phoneNumber);
 
-			// Call Supabase function to create OTP record
-			const { data, error } = await supabase.rpc('request_otp', {
-				p_phone_number: phoneNumber,
+			const response = await client.post('/otp/send', {
+				phone_number: phoneNumber,
+				country_code: '+91' // You might want to extract this from phoneNumber
 			});
 
-			if (error) {
-				console.error('[OTP API] Error:', error);
-				throw error;
-			}
-
-			console.log('[OTP API] OTP sent successfully:', data);
+			console.log('[OTP API] OTP sent successfully:', response.data);
 			return {
 				success: true,
 				message: 'OTP sent successfully',
-				otp: DUMMY_OTP, // In production, this wouldn't be returned
-				...data,
+				otp: '12345', // Dummy OTP for now
+				...response.data,
 			};
 		} catch (error: any) {
 			console.error('[OTP API] Exception:', error);
 			return {
 				success: false,
-				message: error.message || 'Failed to send OTP',
+				message: error.response?.data?.detail || error.message || 'Failed to send OTP',
 			};
 		}
 	},
@@ -46,40 +39,25 @@ export const otpApi = {
 		try {
 			console.log('[OTP API] Verifying OTP for', phoneNumber);
 
-			// Call Supabase function to verify OTP
-			const { data, error } = await supabase.rpc('verify_otp', {
-				p_phone_number: phoneNumber,
-				p_otp_code: otpCode,
+			const response = await client.post('/otp/verify', {
+				phone_number: phoneNumber,
+				otp_code: otpCode,
 			});
 
-			if (error) {
-				console.error('[OTP API] Verification error:', error);
-				return {
-					success: false,
-					message: error.message || 'Failed to verify OTP',
-					user_id: null,
-				};
-			}
-
-			console.log('[OTP API] Verification result:', data);
-			console.log('[OTP API] Verification result type:', typeof data, 'isArray:', Array.isArray(data));
-
-			// The verify_otp function returns a table with success, message, user_id
-			// It might be an array or a single object
-			const result = Array.isArray(data) ? data[0] : data;
-
-			console.log('[OTP API] Parsed result:', result);
+			console.log('[OTP API] Verification result:', response.data);
 
 			return {
-				success: result?.success || false,
-				message: result?.message || 'Verification completed',
-				user_id: result?.user_id || null,
+				success: response.data.success,
+				message: response.data.message,
+				user_id: response.data.user_id,
+				token: response.data.token,
+				user: response.data.user
 			};
 		} catch (error: any) {
 			console.error('[OTP API] Exception:', error);
 			return {
 				success: false,
-				message: error.message || 'An error occurred during verification',
+				message: error.response?.data?.detail || error.message || 'An error occurred during verification',
 				user_id: null,
 			};
 		}

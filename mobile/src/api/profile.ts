@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import client from './client';
 
 export interface SaveProfilePayload {
   phoneNumber: string;
@@ -35,69 +35,29 @@ export const profileApi = {
     try {
       console.log('[PROFILE API] Saving profile:', payload);
 
-      const { data, error } = await supabase.rpc('update_user_profile', {
-        p_phone_number: payload.phoneNumber,
-        p_full_name: payload.fullName,
-        p_age: payload.age || null,
-        p_city: payload.city,
-        p_city_id: payload.city_id || null,
-        p_gender: payload.gender || null,
-        p_handedness: payload.handedness,
-        p_skill_level: payload.skillLevel || null,
-        p_favorite_sports: payload.sports,
-        p_playing_style: payload.playingStyle,
+      const response = await client.post('/profile/save', {
+        phone_number: payload.phoneNumber,
+        full_name: payload.fullName,
+        age: payload.age,
+        city: payload.city,
+        gender: payload.gender,
+        handedness: payload.handedness,
+        skill_level: payload.skillLevel,
+        favorite_sports: payload.sports,
+        playing_style: payload.playingStyle,
       });
 
-      if (error && error.message.includes('p_city_id')) {
-        // Fallback to old function without p_city_id
-        const { data: data2, error: error2 } = await supabase.rpc('update_user_profile', {
-          p_phone_number: payload.phoneNumber,
-          p_full_name: payload.fullName,
-          p_age: payload.age || null,
-          p_city: payload.city,
-          p_gender: payload.gender || null,
-          p_handedness: payload.handedness,
-          p_skill_level: payload.skillLevel || null,
-          p_favorite_sports: payload.sports,
-          p_playing_style: payload.playingStyle,
-        });
-
-        if (error2) {
-          console.error('[PROFILE API] Fallback Error:', error2);
-          return {
-            success: false,
-            message: error2.message || 'Failed to save profile',
-            error: error2.message,
-          };
-        }
-
-        return {
-          success: data2?.success || true,
-          message: data2?.message || 'Profile saved successfully (without city_id)',
-          data: data2,
-        };
-      }
-
-      if (error) {
-        console.error('[PROFILE API] Error:', error);
-        return {
-          success: false,
-          message: error.message || 'Failed to save profile',
-          error: error.message,
-        };
-      }
-
-      console.log('[PROFILE API] Success:', data);
+      console.log('[PROFILE API] Success:', response.data);
       return {
-        success: data?.success || true,
-        message: data?.message || 'Profile saved successfully',
-        data,
+        success: response.data.success,
+        message: response.data.message,
+        data: response.data.data,
       };
     } catch (error: any) {
       console.error('[PROFILE API] Exception:', error);
       return {
         success: false,
-        message: error.message || 'An error occurred while saving profile',
+        message: error.response?.data?.detail || error.message || 'An error occurred while saving profile',
         error: error.message,
       };
     }
@@ -105,29 +65,17 @@ export const profileApi = {
 
   getProfile: async (phoneNumber: string): Promise<SaveProfileResponse> => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('phone_number', phoneNumber)
-        .single();
-
-      if (error) {
-        return {
-          success: false,
-          message: 'Profile not found',
-          error: error.message,
-        };
-      }
+      const response = await client.get(`/profile/${phoneNumber}`);
 
       return {
-        success: true,
-        message: 'Profile retrieved successfully',
-        data,
+        success: response.data.success,
+        message: response.data.message,
+        data: response.data.data.user,
       };
     } catch (error: any) {
       return {
         success: false,
-        message: error.message || 'Failed to retrieve profile',
+        message: error.response?.data?.detail || error.message || 'Failed to retrieve profile',
         error: error.message,
       };
     }
@@ -135,23 +83,10 @@ export const profileApi = {
 
   getCities: async (): Promise<{ success: boolean; data: City[]; error?: string }> => {
     try {
-      const { data, error } = await supabase
-        .from('admin_cities')
-        .select('id, name')
-        .eq('is_active', true)
-        .order('name');
-
-      if (error) {
-        return {
-          success: false,
-          data: [],
-          error: error.message,
-        };
-      }
-
+      const response = await client.get('/common/cities');
       return {
-        success: true,
-        data: data || [],
+        success: response.data.success,
+        data: response.data.data,
       };
     } catch (error: any) {
       return {
@@ -164,23 +99,10 @@ export const profileApi = {
 
   getGameTypes: async (): Promise<{ success: boolean; data: GameType[]; error?: string }> => {
     try {
-      const { data, error } = await supabase
-        .from('admin_game_types')
-        .select('id, name')
-        .eq('is_active', true)
-        .order('name');
-
-      if (error) {
-        return {
-          success: false,
-          data: [],
-          error: error.message,
-        };
-      }
-
+      const response = await client.get('/common/game-types');
       return {
-        success: true,
-        data: data || [],
+        success: response.data.success,
+        data: response.data.data,
       };
     } catch (error: any) {
       return {

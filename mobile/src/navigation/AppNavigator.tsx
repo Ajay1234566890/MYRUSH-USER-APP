@@ -124,7 +124,7 @@ const MainTabNavigator = () => {
 };
 
 export const AppNavigator: React.FC = () => {
-  const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
+  const { isAuthenticated, isLoading, checkAuth, user } = useAuthStore();
 
   useEffect(() => {
     checkAuth();
@@ -148,8 +148,18 @@ export const AppNavigator: React.FC = () => {
       >
         {isAuthenticated ? (
           <>
-            <Stack.Screen name="MainTabs" component={MainTabNavigator} />
-            <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} />
+            {user?.profileCompleted ? (
+              <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+            ) : (
+              <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} />
+            )}
+
+            {/* Ensure both are available in the stack */}
+            {user?.profileCompleted ? (
+              <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} />
+            ) : (
+              <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+            )}
             <Stack.Screen name="Venues" component={VenuesScreen} />
             <Stack.Screen name="VenueDetails" component={VenueDetailsScreen} />
             <Stack.Screen name="SlotSelection" component={SlotSelectionScreen} />

@@ -23,6 +23,7 @@
   "description": "MyRush Backend API Server",
   "dependencies": {
     "@supabase/supabase-js": "^2.86.0",
+    "@types/pg": "^8.15.6",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
@@ -32,7 +33,8 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^9.0.0",
-    "morgan": "^1.10.1"
+    "morgan": "^1.10.1",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",

@@ -1,44 +1,61 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Pool, PoolClient } from 'pg';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const databaseUrl = process.env.DATABASE_URL;
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  console.error('❌ Missing Supabase credentials');
+if (!databaseUrl) {
+  console.error('❌ Missing DATABASE_URL in environment variables');
   process.exit(1);
 }
 
-// Create Supabase client with service role key for backend operations
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
+// Create PostgreSQL connection pool
+export const pool = new Pool({
+  connectionString: databaseUrl,
+  ssl: {
+    rejectUnauthorized: false, // Required for Supabase PostgreSQL connections
   },
+  max: 20, // Maximum number of clients in the pool
+  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+  connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
 });
 
-// Create client with anon key for auth operations
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
-export const supabaseAuth: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+// Helper function to get a client from the pool
+export const getClient = async (): Promise<PoolClient> => {
+  return await pool.connect();
+};
+
+// Helper function to execute a query
+export const query = async (text: string, params?: any[]) => {
+  const start = Date.now();
+  const res = await pool.query(text, params);
+  const duration = Date.now() - start;
+  console.log('Executed query', { text, duration, rows: res.rowCount });
+  return res;
+};
 
 const connectDB = async (): Promise<void> => {
   try {
     // Test connection by making a simple query
-    const { error } = await supabase.from('users').select('count').limit(1).maybeSingle();
+    const client = await pool.connect();
+    const result = await client.query('SELECT NOW()');
+    client.release();
 
-    // If table doesn't exist, that's okay - we'll create it
-    if (error && !error.message.includes('does not exist')) {
-      console.warn(`⚠️ Supabase connection warning: ${error.message}`);
-    }
-
-    console.log(`✅ Supabase Connected: ${supabaseUrl}`);
+    console.log(`✅ PostgreSQL Connected Successfully`);
+    console.log(`   Database: MYRUSH`);
+    console.log(`   Server Time: ${result.rows[0].now}`);
   } catch (error) {
-    console.error(`❌ Error connecting to Supabase: ${error}`);
+    console.error(`❌ Error connecting to PostgreSQL: ${error}`);
     process.exit(1);
   }
 };
+
+// Handle pool errors
+pool.on('error', (err) => {
+  console.error('❌ Unexpected error on idle PostgreSQL client', err);
+  process.exit(-1);
+});
 
 export default connectDB;
 

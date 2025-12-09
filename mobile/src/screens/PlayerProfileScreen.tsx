@@ -122,6 +122,13 @@ const PlayerProfileScreen = () => {
                 return;
             }
 
+            // Update local user state
+            const { updateUser } = useAuthStore.getState();
+            updateUser({
+                fullName: fullName.trim(),
+                profileCompleted: true
+            });
+
             // On success, navigate to dashboard (Home screen)
             navigation.navigate('Home');
         } catch (error: any) {

@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import { supabase } from '../api/supabase';
+import client from '../api/client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { otpApi } from '../api/otp';
 
 export interface UserProfile {
   id: string;
@@ -8,6 +10,7 @@ export interface UserProfile {
   firstName?: string;
   lastName?: string;
   fullName?: string;
+  profileCompleted?: boolean;
 }
 
 interface LoginCredentials {
@@ -35,6 +38,7 @@ interface AuthState {
   register: (data: RegisterData) => Promise<boolean>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  updateUser: (user: Partial<UserProfile>) => void;
   clearError: () => void;
 }
 
@@ -48,42 +52,35 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: async (credentials: LoginCredentials): Promise<boolean> => {
     set({ isLoading: true, error: null });
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const response = await client.post('/auth/login', {
         email: credentials.email,
         password: credentials.password,
       });
 
-      if (error) {
-        set({ isLoading: false, error: error.message });
-        return false;
+      const { data } = response.data;
+
+      if (data.token) {
+        await AsyncStorage.setItem('auth_token', data.token);
       }
 
-      if (data.user && data.session) {
-        // Get profile data
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', data.user.id)
-          .single();
-
-        set({
-          user: {
-            id: data.user.id,
-            email: data.user.email || '',
-            firstName: profile?.first_name || data.user.user_metadata?.first_name || '',
-            lastName: profile?.last_name || data.user.user_metadata?.last_name || '',
-          },
-          token: data.session.access_token,
-          isAuthenticated: true,
-          isLoading: false,
-        });
-        return true;
-      }
-
-      set({ isLoading: false, error: 'Login failed' });
-      return false;
+      set({
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          firstName: data.user.firstName,
+          lastName: data.user.lastName,
+          fullName: data.user.fullName,
+          profileCompleted: data.user.profile_completed,
+        },
+        token: data.token,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+      return true;
     } catch (error: any) {
-      set({ isLoading: false, error: error.message || 'Login failed' });
+      console.error('[AUTH] Login error:', error);
+      const message = error.response?.data?.detail || error.message || 'Login failed';
+      set({ isLoading: false, error: message });
       return false;
     }
   },
@@ -91,8 +88,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   loginWithPhone: async (phoneNumber: string, otpCode: string): Promise<boolean> => {
     set({ isLoading: true, error: null });
     try {
-      // 1. Verify OTP using Supabase function
-      const { otpApi } = require('../api/otp');
+      // Verify OTP using Python backend
       const result = await otpApi.verifyOTP(phoneNumber, otpCode);
 
       console.log('[AUTH] OTP verification result:', result);
@@ -102,60 +98,24 @@ export const useAuthStore = create<AuthState>((set) => ({
         return false;
       }
 
-      // 2. Fetch user data from Supabase users table
-      // Try by user_id first, then fallback to phone_number
-      let userData = null;
-      let userError = null;
+      const userData = result.user;
+      const token = result.token;
 
-      if (result.user_id) {
-        const response = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', result.user_id)
-          .maybeSingle();
-
-        userData = response.data;
-        userError = response.error;
+      if (token) {
+        await AsyncStorage.setItem('auth_token', token);
       }
 
-      // Fallback: try to find by phone number
-      if (!userData) {
-        console.log('[AUTH] User not found by ID, trying phone number:', phoneNumber);
-        const response = await supabase
-          .from('users')
-          .select('*')
-          .eq('phone_number', phoneNumber)
-          .maybeSingle();
-
-        userData = response.data;
-        userError = response.error;
-      }
-
-      if (userError) {
-        console.error('[AUTH] Error fetching user:', userError);
-        set({ isLoading: false, error: 'Failed to fetch user profile' });
-        return false;
-      }
-
-      if (!userData) {
-        console.error('[AUTH] User not found in database');
-        set({ isLoading: false, error: 'User not found. Please try again.' });
-        return false;
-      }
-
-      console.log('[AUTH] User data fetched:', userData);
-
-      // 3. Set auth state with real user data
       set({
         user: {
           id: userData.id,
-          phoneNumber: userData.phone_number,
-          firstName: userData.full_name || 'User',
-          lastName: '',
+          phoneNumber: userData.phoneNumber,
+          firstName: userData.firstName,
+          lastName: userData.lastName,
           email: userData.email,
-          fullName: userData.full_name,
+          fullName: userData.fullName,
+          profileCompleted: userData.profileCompleted,
         },
-        token: `phone-auth-${userData.id}`,
+        token: token,
         isAuthenticated: true,
         isLoading: false,
       });
@@ -171,55 +131,43 @@ export const useAuthStore = create<AuthState>((set) => ({
   register: async (data: RegisterData): Promise<boolean> => {
     set({ isLoading: true, error: null });
     try {
-      const { data: authData, error } = await supabase.auth.signUp({
+      const response = await client.post('/auth/register', {
         email: data.email,
         password: data.password,
-        options: {
-          data: {
-            first_name: data.firstName,
-            last_name: data.lastName,
-          },
-        },
+        first_name: data.firstName,
+        last_name: data.lastName,
       });
 
-      if (error) {
-        set({ isLoading: false, error: error.message });
-        return false;
+      const { data: responseData } = response.data;
+
+      if (responseData.token) {
+        await AsyncStorage.setItem('auth_token', responseData.token);
       }
 
-      if (authData.user && authData.session) {
-        // Create profile
-        await supabase.from('profiles').insert({
-          id: authData.user.id,
-          email: authData.user.email,
-          first_name: data.firstName,
-          last_name: data.lastName,
-        });
-
-        set({
-          user: {
-            id: authData.user.id,
-            email: authData.user.email || '',
-            firstName: data.firstName,
-            lastName: data.lastName,
-          },
-          token: authData.session.access_token,
-          isAuthenticated: true,
-          isLoading: false,
-        });
-        return true;
-      }
-
-      set({ isLoading: false, error: 'Registration failed' });
-      return false;
+      set({
+        user: {
+          id: responseData.user.id,
+          email: responseData.user.email,
+          firstName: responseData.user.firstName,
+          lastName: responseData.user.lastName,
+          fullName: responseData.user.fullName,
+          profileCompleted: responseData.user.profile_completed,
+        },
+        token: responseData.token,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+      return true;
     } catch (error: any) {
-      set({ isLoading: false, error: error.message || 'Registration failed' });
+      console.error('[AUTH] Registration error:', error);
+      const message = error.response?.data?.detail || error.message || 'Registration failed';
+      set({ isLoading: false, error: message });
       return false;
     }
   },
 
   logout: async (): Promise<void> => {
-    await supabase.auth.signOut();
+    await AsyncStorage.removeItem('auth_token');
     set({
       user: null,
       token: null,
@@ -231,36 +179,50 @@ export const useAuthStore = create<AuthState>((set) => ({
   checkAuth: async (): Promise<void> => {
     set({ isLoading: true });
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const token = await AsyncStorage.getItem('auth_token');
 
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-
-        set({
-          user: {
-            id: session.user.id,
-            email: session.user.email || '',
-            firstName: profile?.first_name || session.user.user_metadata?.first_name || '',
-            lastName: profile?.last_name || session.user.user_metadata?.last_name || '',
-          },
-          token: session.access_token,
-          isAuthenticated: true,
-          isLoading: false,
-        });
+      if (!token) {
+        set({ isLoading: false, isAuthenticated: false });
         return;
       }
-      set({ isLoading: false });
+
+      // Verify token and get profile
+      const response = await client.get('/auth/profile');
+      const { data } = response.data;
+
+      set({
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          phoneNumber: data.user.phoneNumber,
+          firstName: data.user.firstName,
+          lastName: data.user.lastName,
+          fullName: data.user.fullName,
+          profileCompleted: data.user.profile_completed,
+        },
+        token: token,
+        isAuthenticated: true,
+        isLoading: false,
+      });
     } catch (error) {
-      set({ isLoading: false });
+      console.error('[AUTH] Check auth error:', error);
+      await AsyncStorage.removeItem('auth_token');
+      set({
+        isLoading: false,
+        isAuthenticated: false,
+        user: null,
+        token: null
+      });
     }
+  },
+
+  updateUser: (userData: Partial<UserProfile>) => {
+    set((state) => ({
+      user: state.user ? { ...state.user, ...userData } : null,
+    }));
   },
 
   clearError: () => set({ error: null }),
 }));
 
 export default useAuthStore;
-
